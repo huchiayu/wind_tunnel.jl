@@ -20,8 +20,11 @@ const UnitVelocity_in_cm_per_s = 1e5
 
 @with_kw struct Params{NDIM,T}
 
-    Lx::T   # box size in x-direction
-    Ly::T   # box size in y-direction
+    #Lx::T   # box size in x-direction
+    #Ly::T   # box size in y-direction
+
+    boxsize::T # box size in y- and z-directions
+    efac::T #box size in x-direction in units of boxsize
 
     Tc::T   # cloud temperature
     Th::T   # hot gas temperature
@@ -29,6 +32,7 @@ const UnitVelocity_in_cm_per_s = 1e5
     nc::T   # cloud density
     nh::T   # hot gas density
 
+    xc::T   # x coordinate for the cloud center in units of Lx
     Rc::T   # cloud radius
     vx::T   # relative velocity (in x-direction)
 
@@ -55,12 +59,15 @@ end
 
 function generate_wind_tunnel(par::Params{NDIM,T}) where{NDIM,T}
 
-    @unpack Lx, Ly, nc, nh, Tc, Th, Rc, vx, Nc, filename, seed = par
+    @unpack boxsize, efac, nc, nh, Tc, Th, xc, Rc, vx, Nc, filename, seed = par
 
-    Lz=Ly
-    efac = Int(div(Lx,Lz))   #elongation factor
+    Ly=Lz=boxsize
+    Lx=Ly*efac
+    #efac = Int(round(Lx/Ly))   #elongation factor
+    @show Lx,Ly,Lz
 
-    cloudcenter = [Lx,Ly,Lz] .* 0.5
+    cloudcenter = [xc*Lx,0.5*Ly,0.5*Lz]
+    #cloudcenter = [Lx,Ly,Lz] .* 0.5
 
     χ = nc / nh    
 
@@ -80,9 +87,10 @@ function generate_wind_tunnel(par::Params{NDIM,T}) where{NDIM,T}
     Nh_float = Nc/χ * (volume_box / volume_cloud)
     Ngrid = floor(Int, (Nh_float / efac)^(1/3) )
 
-    Nh_uncut = Ngrid^3 * efac  #number of particles in the hot background medium (uniform grid) 
+
+    Nh_uncut = Int(Ngrid^3 * efac)  #number of particles in the hot background medium (uniform grid) 
     dx = Ly / Ngrid  #cell size
-    
+     
     pos_h = zeros(3,Nh_uncut)
 
     n = 0
@@ -125,7 +133,8 @@ function generate_wind_tunnel(par::Params{NDIM,T}) where{NDIM,T}
     #T_gas = vcat(ones(Nh) .* Th)
     T_gas = vcat(ones(Nh) .* Th, ones(Nc) .* Tc)
 
-    fac_T2u = BOLTZMANN / (GAMMA-1.0) / PROTONMASS / UnitVelocity_in_cm_per_s^2
+    mu = 0.62  #ionized gas
+    fac_T2u = BOLTZMANN / ((GAMMA-1.0) * mu * PROTONMASS * UnitVelocity_in_cm_per_s^2)
     u_gas = T_gas .* fac_T2u
 
     @show u_gas[1], u_gas[end]
@@ -155,7 +164,7 @@ function generate_wind_tunnel(par::Params{NDIM,T}) where{NDIM,T}
 
     ########## write to file ##########
     println("saving to file...")
-    save_gadget_ics(filename, pos, vel, id_gas, m_gas, u_gas, N_gas, Ly)
+    save_gadget_ics(filename, pos, vel, id_gas, m_gas, u_gas, N_gas, boxsize)
     println("done")
 
     return pos, vel, id_gas, m_gas, u_gas, N_gas, Ly
@@ -198,18 +207,23 @@ function save_gadget_ics(filename, pos, vel, id_gas, m_gas, u_gas, N_gas, boxsiz
     close(fid)
 end
 
-Lx=1.5
-Ly=0.5
+
+Rc=0.001
+boxsize = Rc * 10 #Ly
+efac = 5 #Lx = Ly * efac
 nc=1e0
 nh=1e-2
 Tc=1e4
 Th=1e6
-Rc=0.05
-vx=100
-Nc=10_000
-file_name="ics_wind.hdf5"
+xc=0.2
+vx=200
+Nc=100_000
 
-par = Params{3,Float64}(Lx=Lx, Ly=Ly, nc=nc, nh=nh, Tc=Tc, Th=Th, Rc=Rc, vx=vx, Nc=Nc, filename=file_name);
+#filename="ics_wind_N1e5_Rc0p1_Lx3Ly1.hdf5"
+filename="ics_wind_N1e5_Rc0p001_Ly0p01_efac5.hdf5"
+
+par = Params{3,Float64}(boxsize=boxsize, efac=efac, Rc=Rc, xc=xc, nc=nc, nh=nh, Tc=Tc, Th=Th, vx=vx, Nc=Nc, filename=filename);
 pos, vel, id_gas, m_gas, u_gas, N_gas, Ly = generate_wind_tunnel(par);
 clf()
-plot(pos[1,:], pos[2,:], ".", ms=0.3)
+plot(pos[1,:], pos[2,:], ".", ms=0.01)
+#axis([0,Lx,0,Ly])
